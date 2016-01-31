@@ -1,0 +1,104 @@
+---
+title: "prediction assignment writeup"
+author: "LonePine"
+date: "January 20, 2016"
+output: html_document
+---
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity.In this project, the goal was to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+[More information is available from the website here:] (http://groupware.les.inf.puc-rio.br/har) 
+ The six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+[Read more:]( http://groupware.les.inf.puc-rio.br/har#ixzz3yooDqX4J)
+![on-body-sensing-schema](http://groupware.les.inf.puc-rio.br/static/WLE/on-body-sensing-schema.png)
+** We read in data and create training and testing sets**
+
+```{r, echo= TRUE}
+setwd("C:/Users/Data Science Coursera/Gitrepos/practical machine learning")
+fileUrl_training <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(fileUrl_training, destfile ="./pml-training.csv", method = "wininet")
+
+fileUrl_testing <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileUrl_testing, destfile = "./pml-testing.csv", method = "wininet")
+training_pml = read.csv("pml-training.csv", na.strings = c("", "NA", "NULL"))
+dim(training_pml)
+testing_pml = read.csv("pml-testing.csv", na.strings = c("", "NA", "NULL"))
+dim(testing_pml)
+```
+
+ We remove the variables that have missing values and include the variables that have the required classe variables that we are trying to measure.
+```{r, echo=TRUE}
+missingNA <- sapply(testing_pml, function (x) any(is.na(x) | x == ""))
+Predictor <- !missingNA & grepl("belt|[^(fore)]arm|dumbbell|forearm", names(missingNA))
+predVariables <- names(missingNA)[Predictor]
+predVariables
+```
+
+We create a training set with the classe variable and the predictor variables:
+```{r, echo= TRUE}
+library(caret)
+set.seed(12345)
+training_set <- training_pml[, c("classe", predVariables)]
+dim(training_set)
+training_set$classe <- as.factor(training_set$classe)
+inTrain <- createDataPartition(training_set$classe, p=0.7, list = FALSE)
+
+training_activity <- training_set[inTrain,]
+testing_activity <- training_set[-inTrain,]
+dim(training_activity)
+dim(testing_activity)
+```
+**configure parallel processing**:Parallel processing in caret can be accomplished with the parallel and doParallel packages.
+```{r, echo= TRUE}
+library(parallel)
+library(doParallel)
+# convention to leave 1 core for OS
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+```
+**Cross Validation**
+
+Now we load tree package and *fit a model* using this; then we plot the same.This is faster than 
+caret package;
+```{r, echo= TRUE}
+library(tree)
+modfit_tree <- tree(classe ~ ., data = training_activity)
+summary(modfit_tree)
+plot(modfit_tree)
+text(modfit_tree, pretty = 0, cex = 0.8)
+summary(modfit_tree)
+```
+
+
+Now we fit out prediction models for the above to perform cross validation:
+```{r, echo= TRUE}
+pred_tree <- predict(modfit_tree, testing_activity, method = "class")
+predMatrix = with(testing_activity,pred_tree,classe)
+sum(diag(predMatrix))/sum(as.vector(predMatrix))
+
+```
+** Random Forest Cross validation**
+Now we perform the above using random forest
+```{r, echo= TRUE}
+library(randomForest)
+set.seed(12345)
+modfit_randomforest=randomForest(classe~.,data=training_activity, ntree=100, importance=TRUE)
+modfit_randomforest
+varImpPlot(modfit_randomforest)
+pred_randomForest <- predict(modfit_randomforest,testing_activity, type = "class")
+predMatrix = with(testing_activity,table(pred_randomForest,classe))
+sum(diag(predMatrix))/sum(as.vector(predMatrix))
+```
+We get a better prediction model with 99% accuracy with random forest model. So that is the model 
+we will use to predict the test data set given.
+Applying the random forest model to the test data given:
+```{r, echo= TRUE}
+Solution <- predict(modfit_randomforest, testing_pml )
+Solution
+
+```
+
+##Citation##
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+
+
